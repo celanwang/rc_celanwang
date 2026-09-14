@@ -44,6 +44,7 @@ type Manager struct {
 	lastCleanup  time.Time
 	retention    time.Duration
 	cleanupEvery time.Duration
+	stopped      chan struct{}
 }
 
 func New(store Store, deliverer Deliverer, cfg config.Config, logger *slog.Logger) *Manager {
@@ -56,10 +57,12 @@ func New(store Store, deliverer Deliverer, cfg config.Config, logger *slog.Logge
 		scanInterval: cfg.ScanInterval, global: make(chan struct{}, cfg.Workers), targets: targets,
 		policy:    retry.Policy{Base: cfg.RetryBase, Max: cfg.RetryMax, Min: cfg.RetryMin, Rand: rand.Float64},
 		retention: cfg.TerminalRetention, cleanupEvery: cfg.CleanupInterval,
+		stopped: make(chan struct{}),
 	}
 }
 
 func (m *Manager) Run(ctx context.Context) {
+	defer close(m.stopped)
 	ticker := time.NewTicker(m.scanInterval)
 	defer ticker.Stop()
 	m.scan(ctx)
@@ -74,6 +77,11 @@ func (m *Manager) Run(ctx context.Context) {
 }
 
 func (m *Manager) Wait(ctx context.Context) error {
+	select {
+	case <-m.stopped:
+	case <-ctx.Done():
+		return ctx.Err()
+	}
 	done := make(chan struct{})
 	go func() { m.wg.Wait(); close(done) }()
 	select {

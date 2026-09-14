@@ -39,6 +39,10 @@ type Client struct {
 	maxResponseBody int64
 }
 
+type targetError struct{ message string }
+
+func (e *targetError) Error() string { return e.message }
+
 func New(cfg config.Config) (*Client, error) {
 	clients := make(map[string]*http.Client, len(cfg.Targets))
 	for id, target := range cfg.Targets {
@@ -143,11 +147,11 @@ func guardedDialer(dialer *net.Dialer, target config.Target) func(context.Contex
 	return func(ctx context.Context, network, address string) (net.Conn, error) {
 		host, portText, err := net.SplitHostPort(address)
 		if err != nil || !containsFold(target.Hosts, host) {
-			return nil, errors.New("target address is not allowed")
+			return nil, &targetError{message: "target address is not allowed"}
 		}
 		port, err := strconv.Atoi(portText)
 		if err != nil || !containsInt(target.Ports, port) {
-			return nil, errors.New("target port is not allowed")
+			return nil, &targetError{message: "target port is not allowed"}
 		}
 		addresses, err := net.DefaultResolver.LookupIPAddr(ctx, host)
 		if err != nil {
@@ -158,7 +162,7 @@ func guardedDialer(dialer *net.Dialer, target config.Target) func(context.Contex
 		}
 		for _, address := range addresses {
 			if !target.AllowPrivate && !notification.HostIsPublic(address.IP) {
-				return nil, errors.New("resolved address is not public")
+				return nil, &targetError{message: "resolved address is not public"}
 			}
 		}
 		return dialer.DialContext(ctx, network, net.JoinHostPort(addresses[0].IP.String(), portText))
@@ -170,6 +174,10 @@ func classifyError(err error) (string, string, bool) {
 	var hostnameError x509.HostnameError
 	var dnsError *net.DNSError
 	var urlError *url.Error
+	var denied *targetError
+	if errors.As(err, &denied) {
+		return "target_not_allowed", "connect", false
+	}
 	if errors.As(err, &unknownAuthority) || errors.As(err, &hostnameError) {
 		return "tls_certificate", "tls", false
 	}
