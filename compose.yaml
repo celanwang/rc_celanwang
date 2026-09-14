@@ -1,0 +1,26 @@
+name: rc-celanwang
+services:
+  mysql:
+    image: mysql:8.4.7
+    environment:
+      MYSQL_DATABASE: notifier
+      MYSQL_USER: notifier
+      MYSQL_PASSWORD: notifier
+      MYSQL_ROOT_PASSWORD: notifier-root
+      TZ: UTC
+    ports:
+      - "3307:3306"
+    command:
+      - --default-time-zone=+00:00
+      - --character-set-server=utf8mb4
+      - --collation-server=utf8mb4_0900_ai_ci
+    healthcheck:
+      test: ["CMD", "mysqladmin", "ping", "-h", "localhost", "-unotifier", "-pnotifier"]
+      interval: 2s
+      timeout: 2s
+      retries: 30
+    volumes:
+      - notifier-mysql-data:/var/lib/mysql
+
+volumes:
+  notifier-mysql-data:
