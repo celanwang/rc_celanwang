@@ -17,6 +17,14 @@ go run ./cmd/notifier -migrate-only
 
 迁移可重复执行。服务启动时也会先执行尚未应用的 migration，因此单独运行迁移主要用于部署前检查。MySQL DSN 必须启用 `parseTime=true` 并使用 UTC；示例已经包含这些设置。
 
+仓库根目录的 Makefile 为这些命令提供薄封装。它不替代本说明中的原始命令；需要快速建立本地环境时，可以运行：
+
+```sh
+cp .env.example .env
+make mysql-up
+make migrate
+```
+
 ## 本地启动
 
 先在一个终端启动模拟供应商。它提供成功、异步接受、暂时失败、超时和永久失败路径，并只记录 Method、Path 和业务幂等标识，不记录 Authorization 或正文。
@@ -109,8 +117,13 @@ test -z "$(gofmt -l .)"
 go build ./...
 go vet ./...
 go test ./...
-NOTIFIER_TEST_MYSQL_DSN='notifier:notifier@tcp(127.0.0.1:3307)/notifier?parseTime=true&charset=utf8mb4&loc=UTC' go test ./internal/store/mysqlstore ./internal/integration -v
+docker compose exec -T mysql env MYSQL_PWD=notifier-root mysql -uroot \
+  -e "CREATE DATABASE IF NOT EXISTS notifier_test CHARACTER SET utf8mb4 COLLATE utf8mb4_0900_ai_ci; GRANT ALL PRIVILEGES ON notifier_test.* TO 'notifier'@'%';"
+NOTIFIER_TEST_MYSQL_DSN='notifier:notifier@tcp(127.0.0.1:3307)/notifier_test?parseTime=true&charset=utf8mb4&loc=UTC' \
+  go test ./internal/store/mysqlstore ./internal/integration -v
 ```
+
+也可以运行 `make check` 执行格式、构建、静态检查和普通测试，或运行 `make check-all` 再使用独立的 `notifier_test` 数据库执行真实 MySQL 用例。后者会清理该测试数据库中的通知记录，不会操作示例配置使用的 `notifier` 开发数据库。
 
 服务收到 `SIGINT` 或 `SIGTERM` 后停止领取，关闭接入并在配置的期限内等待在途请求。普通停止保留 MySQL 数据卷：
 
