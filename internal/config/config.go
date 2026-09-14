@@ -23,6 +23,7 @@ type Target struct {
 	AllowPrivate   bool              `json:"allow_private"`
 	MaxConcurrency int               `json:"max_concurrency"`
 	Credential     map[string]string `json:"credential_headers,omitempty"`
+	CAFile         string            `json:"ca_file,omitempty"`
 }
 
 type Config struct {
@@ -47,6 +48,8 @@ type Config struct {
 	RetryMax              time.Duration
 	RetryMin              time.Duration
 	BacklogLimit          int64
+	TerminalRetention     time.Duration
+	CleanupInterval       time.Duration
 }
 
 func Load() (Config, error) {
@@ -70,6 +73,8 @@ func Load() (Config, error) {
 		RetryMax:              envDuration("NOTIFIER_RETRY_MAX", time.Hour),
 		RetryMin:              envDuration("NOTIFIER_RETRY_MIN", time.Second),
 		BacklogLimit:          envInt64("NOTIFIER_BACKLOG_LIMIT", 100000),
+		TerminalRetention:     envDuration("NOTIFIER_TERMINAL_RETENTION", 30*24*time.Hour),
+		CleanupInterval:       envDuration("NOTIFIER_CLEANUP_INTERVAL", time.Hour),
 	}
 	var err error
 	c.APIKeys, err = parseAPIKeys(os.Getenv("NOTIFIER_API_KEYS"))
@@ -89,7 +94,7 @@ func Load() (Config, error) {
 	if c.Workers < 1 || c.MaxAttempts < 1 || c.MaxBodyBytes < 1 || c.MaxEnvelopeBytes < c.MaxBodyBytes || c.BacklogLimit < 1 {
 		return Config{}, errors.New("worker, attempt, backlog and size limits must be positive")
 	}
-	if c.ScanInterval <= 0 || c.LeaseDuration <= c.RequestTimeout || c.RequestTimeout <= 0 || c.RetryMin <= 0 || c.RetryBase < c.RetryMin || c.RetryMax < c.RetryBase || c.Validity <= 0 {
+	if c.ScanInterval <= 0 || c.LeaseDuration <= c.RequestTimeout || c.RequestTimeout <= 0 || c.RetryMin <= 0 || c.RetryBase < c.RetryMin || c.RetryMax < c.RetryBase || c.Validity <= 0 || c.TerminalRetention <= 0 || c.CleanupInterval <= 0 {
 		return Config{}, errors.New("invalid timeout, lease, validity or retry settings")
 	}
 	return c, nil

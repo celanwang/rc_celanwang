@@ -37,6 +37,8 @@ type Store interface {
 	ListAttempts(context.Context, string, string, int, int) ([]domain.Attempt, error)
 	Replay(context.Context, string, string, string, string, int, time.Time) (domain.Notification, error)
 	GetByIdempotency(context.Context, string, string) (domain.Notification, error)
+	Metrics(context.Context) (mysqlstore.Metrics, error)
+	Now(context.Context) (time.Time, error)
 }
 
 type Service struct {
@@ -46,11 +48,10 @@ type Service struct {
 	maxAttempts  int
 	validity     time.Duration
 	backlogLimit int64
-	now          func() time.Time
 }
 
 func NewService(store Store, cfg config.Config) *Service {
-	return &Service{store: store, targets: cfg.Targets, maxBodyBytes: cfg.MaxBodyBytes, maxAttempts: cfg.MaxAttempts, validity: cfg.Validity, backlogLimit: cfg.BacklogLimit, now: time.Now}
+	return &Service{store: store, targets: cfg.Targets, maxBodyBytes: cfg.MaxBodyBytes, maxAttempts: cfg.MaxAttempts, validity: cfg.Validity, backlogLimit: cfg.BacklogLimit}
 }
 
 func (s *Service) Get(ctx context.Context, callerID, id string) (domain.Notification, error) {
@@ -67,6 +68,10 @@ func (s *Service) ListAttempts(ctx context.Context, callerID, id string, limit, 
 
 func (s *Service) Replay(ctx context.Context, callerID, operator, id, reason string, expectedRun int, expiresAt time.Time) (domain.Notification, error) {
 	return s.store.Replay(ctx, callerID, operator, id, reason, expectedRun, expiresAt)
+}
+
+func (s *Service) Metrics(ctx context.Context) (mysqlstore.Metrics, error) {
+	return s.store.Metrics(ctx)
 }
 
 func (s *Service) Create(ctx context.Context, callerID, key string, req domain.CreateRequest) (domain.Notification, bool, error) {
@@ -95,7 +100,10 @@ func (s *Service) Create(ctx context.Context, callerID, key string, req domain.C
 		}
 		return domain.Notification{}, false, ErrBacklogFull
 	}
-	now := s.now().UTC()
+	now, err := s.store.Now(ctx)
+	if err != nil {
+		return domain.Notification{}, false, err
+	}
 	n := domain.Notification{
 		ID:             newUUID(),
 		CallerID:       callerID,

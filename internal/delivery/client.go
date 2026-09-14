@@ -11,6 +11,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -38,10 +39,25 @@ type Client struct {
 	maxResponseBody int64
 }
 
-func New(cfg config.Config) *Client {
+func New(cfg config.Config) (*Client, error) {
 	clients := make(map[string]*http.Client, len(cfg.Targets))
 	for id, target := range cfg.Targets {
 		target := target
+		tlsConfig := &tls.Config{MinVersion: tls.VersionTLS12}
+		if target.CAFile != "" {
+			pem, err := os.ReadFile(target.CAFile)
+			if err != nil {
+				return nil, fmt.Errorf("read CA file for target %s: %w", id, err)
+			}
+			pool, err := x509.SystemCertPool()
+			if err != nil {
+				return nil, fmt.Errorf("load system CA pool: %w", err)
+			}
+			if !pool.AppendCertsFromPEM(pem) {
+				return nil, fmt.Errorf("CA file for target %s contains no certificate", id)
+			}
+			tlsConfig.RootCAs = pool
+		}
 		dialer := &net.Dialer{Timeout: cfg.ConnectTimeout, KeepAlive: 30 * time.Second}
 		transport := &http.Transport{
 			Proxy:                  nil,
@@ -54,7 +70,7 @@ func New(cfg config.Config) *Client {
 			ResponseHeaderTimeout:  cfg.ResponseHeaderTimeout,
 			ExpectContinueTimeout:  time.Second,
 			MaxResponseHeaderBytes: 32 << 10,
-			TLSClientConfig:        &tls.Config{MinVersion: tls.VersionTLS12},
+			TLSClientConfig:        tlsConfig,
 		}
 		clients[id] = &http.Client{
 			Transport: transport,
@@ -64,7 +80,7 @@ func New(cfg config.Config) *Client {
 			},
 		}
 	}
-	return &Client{clients: clients, targets: cfg.Targets, maxResponseBody: cfg.MaxResponseBodyBytes}
+	return &Client{clients: clients, targets: cfg.Targets, maxResponseBody: cfg.MaxResponseBodyBytes}, nil
 }
 
 func (c *Client) CloseIdleConnections() {

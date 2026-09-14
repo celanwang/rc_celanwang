@@ -6,6 +6,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"log/slog"
 	"mime"
@@ -26,6 +27,7 @@ type Service interface {
 	List(context.Context, string, mysqlstore.ListFilter) ([]domain.Notification, error)
 	ListAttempts(context.Context, string, string, int, int) ([]domain.Attempt, error)
 	Replay(context.Context, string, string, string, string, int, time.Time) (domain.Notification, error)
+	Metrics(context.Context) (mysqlstore.Metrics, error)
 }
 
 type Server struct {
@@ -50,6 +52,7 @@ func New(service Service, cfg config.Config, ready func(context.Context) error, 
 	mux.Handle("GET /v1/notifications/{id}", s.auth(http.HandlerFunc(s.get)))
 	mux.Handle("GET /v1/notifications/{id}/attempts", s.auth(http.HandlerFunc(s.attempts)))
 	mux.Handle("POST /v1/notifications/{id}/replays", s.auth(http.HandlerFunc(s.replay)))
+	mux.Handle("GET /metrics", s.auth(http.HandlerFunc(s.metrics)))
 	s.handler = s.requestContext(mux)
 	return s
 }
@@ -201,6 +204,26 @@ func (s *Server) readiness(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+}
+
+func (s *Server) metrics(w http.ResponseWriter, r *http.Request) {
+	if !principalFrom(r).Admin {
+		s.writeError(w, r, http.StatusForbidden, "FORBIDDEN", "administrator permission required")
+		return
+	}
+	metrics, err := s.service.Metrics(r.Context())
+	if err != nil {
+		s.mapServiceError(w, r, err)
+		return
+	}
+	w.Header().Set("Content-Type", "text/plain; version=0.0.4")
+	for _, status := range []string{"pending", "processing", "succeeded", "failed"} {
+		_, _ = fmt.Fprintf(w, "notifier_notifications{status=%q} %d\n", status, metrics.StatusCounts[status])
+	}
+	_, _ = fmt.Fprintf(w, "notifier_oldest_pending_seconds %.6f\n", metrics.OldestPendingSeconds)
+	for _, attempt := range metrics.Attempts {
+		_, _ = fmt.Fprintf(w, "notifier_attempts{target_id=%q,result=%q} %d\n", attempt.TargetID, attempt.Result, attempt.Count)
+	}
 }
 
 func (s *Server) mapServiceError(w http.ResponseWriter, r *http.Request, err error) {

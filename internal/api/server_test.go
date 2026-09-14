@@ -36,6 +36,9 @@ func (stubService) ListAttempts(context.Context, string, string, int, int) ([]do
 func (stubService) Replay(context.Context, string, string, string, string, int, time.Time) (domain.Notification, error) {
 	return domain.Notification{}, nil
 }
+func (stubService) Metrics(context.Context) (mysqlstore.Metrics, error) {
+	return mysqlstore.Metrics{}, nil
+}
 
 func TestCreateAuthenticationAndPersistenceResponse(t *testing.T) {
 	tests := []struct {

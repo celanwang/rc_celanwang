@@ -37,6 +37,12 @@ func Open(dsn string) (*sql.DB, error) {
 
 func (s *Store) Ping(ctx context.Context) error { return s.db.PingContext(ctx) }
 
+func (s *Store) Now(ctx context.Context) (time.Time, error) {
+	var now time.Time
+	err := s.db.QueryRowContext(ctx, "SELECT NOW(6)").Scan(&now)
+	return now.UTC(), err
+}
+
 func (s *Store) CountActive(ctx context.Context) (int64, error) {
 	var count int64
 	err := s.db.QueryRowContext(ctx, "SELECT COUNT(*) FROM notification WHERE status IN ('pending','processing')").Scan(&count)
